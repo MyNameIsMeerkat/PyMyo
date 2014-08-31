@@ -31,7 +31,8 @@ class pyMyo(object):
     """
     def __init__(self):
         self.available_modules   = {}
-        self.aliases             = {} 
+        self.aliases             = {}
+        self.settable_vars       = []
         
         ##Whether to cause the pyMyo class to be reinstantiated so runtime code changes will be loaded
         self.reload_pymyo        = False
@@ -177,7 +178,42 @@ class pyMyo(object):
     
     def set_project(self, module):
         pass 
-    
+
+
+    def set_var(self, var, val):
+        """
+        Set an internal var that has been whitelisted as being 'setable'
+        Also mangles the name of the variable being set to '_var_<name>'
+        to stop any inadvertent setting of critical vars
+        """
+        ##Is the var even settable?
+        if var not in self.settable_vars:
+            #print "[-] '%s' is not settable"%(var)
+            return False
+        else:
+            #print "[+] Setting %s to %s"%(var, val)
+            setattr(self, "_var_%s"%(var), val)
+            return True
+
+
+    def get_var(self, var):
+        """
+        Counterpart to do_set that can retrieve the mangled user set variable name
+        If no variables are set the all settable variables set are returned
+        Returns a dictionary or var / vals or,
+        If requested variable is not present an empty dict is returned
+        """
+        ##Reuqetsing a single variable or all of 'em?
+        ret = {}
+        if var:
+            x = getattr(self, "_var_%s"%(var), None)
+            if x:
+                ret[var] = x
+        else:
+            for settable in self.settable_vars:
+                ret[settable] = getattr(self, "_var_%s"%(settable), None)
+        return ret
+
     def error(self, msg):
         """
         Display error

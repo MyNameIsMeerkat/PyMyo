@@ -5,8 +5,11 @@ import os
 import cmd
 import sys
 import code
+import time
+import Queue
 import readline
 import traceback
+from threading import Thread
 
 from _pyMyo import pyMyo
 
@@ -64,6 +67,18 @@ class pyMyoCli(pyMyo, cmd.Cmd):
 
         ##For tab-completion logic
         self.command_that_take_module_as_args = ["help", "info"]
+
+        ##Result queue for async commands, swept in the postloop
+        self.async_ret_q = Queue.Queue(0)
+
+        ##A table to track async command threads
+        self.async_cmd_threads = {}
+
+        ##A table to hold the status of asynchronous commands
+        self.async_cmd_status  = {}
+
+        ##Incrementor for a unique id for each command
+        self.cmd_id = 0
 
 
     def _main(self):
@@ -135,21 +150,59 @@ class pyMyoCli(pyMyo, cmd.Cmd):
         
     def postcmd(self, stop, line):
         """
-        Store the previous argument for quick auto retrevial in future commands
+        Do housekeeping after each command
         """
+        ##Store the previous argument for quick auto retrevial in future commands
         line = line.strip()
         self.prev_arg = ''.join(line.split(" ")[1:])
-        
+
         return stop
-        
+
+
     def precmd(self, line):
         """
         Hook to add previous argument to current command if no arg is given 
         (and the command isn't on an exception list)
         """
-        line = line.strip()
-        if len(line) and len( line.split(" ")) <2 and line[0] not in self.shotcuts and line.split(" ")[0] not in self.autoarg_exceptions and not line[0].isdigit():
-            line = "%s %s"%(line, self.prev_arg)
+        # line = line.strip()
+        # if len(line) and len( line.split(" ")) <2 and line[0] not in self.shotcuts and line.split(" ")[0] not in self.autoarg_exceptions and not line[0].isdigit():
+        #     line = "%s %s"%(line, self.prev_arg)
+        #
+
+
+        ##Check whether any asynchronous commands have returned
+        try:
+            cmd_id, ret_data = self.async_ret_q.get(False)
+
+        except Queue.Empty:
+            ##No data returned from cmd threads, all good
+            return line
+
+        except Exception, err:
+            self.output(self.ruler*70)
+            self.error("Bad data given in return queue by asynchronous module '%s' "%(line))
+            self._error()
+            self.output(self.ruler*70)
+            return line
+
+        ##Get the thread object form the table
+        t = self.async_cmd_threads.get(cmd_id, False)
+        if not t:
+            self.output(self.ruler*70)
+            self.error("Unknown asynchronous command ID '%s'? "%(cmd_id))
+            self._error()
+            self.output(self.ruler*70)
+            return line
+
+        ##Join the worker thread & remove from the cmd table
+        ## + update the status table for the command
+        self.async_ret_q.task_done()
+        t.join()
+        del self.async_cmd_threads[cmd_id]
+        self.async_cmd_status[cmd_id][0] = True
+        self.async_cmd_status[cmd_id][2] = time.time()
+        self.async_cmd_status[cmd_id][3] = ret_data
+        self.notify("Return data from async command %d avaiable (type: `results` to view)\n"%(cmd_id))
             
         return line
         
@@ -196,6 +249,22 @@ class pyMyoCli(pyMyo, cmd.Cmd):
         return cmd, arg, line            
         
         
+    def async_exit(self, cmd_id, return_msg):
+        """
+        Method called by asynchronous modules to pass their results
+        back to the CLI loop - more a convenience method, just wraps
+        a Queue put
+        """
+        self.async_ret_q.put((cmd_id, return_msg))
+
+
+    def _update_prompt(self, prompt):
+        """
+        Update the commandline prompt
+        """
+        self.prompt = prompt
+
+
     def do_py(self, line):
         """
         Execute python expression 
@@ -349,6 +418,82 @@ class pyMyoCli(pyMyo, cmd.Cmd):
         #todo
 
 
+    def do_set(self, line):
+        """
+        Set an internal var that has been whitelisted as being 'setable'
+        Also mangles the name of the variable being set to '_var_<name>'
+        to stop any inadvertent setting of critical vars
+        """
+        line = line.lower().replace(" ","")
+        split_line = line.split("=")
+        if len(split_line) <2:
+            return None
+        var = split_line[0]
+        val = split_line[1]
+
+        ##Is the var even settable?
+        if not self.set_var(var, val):
+            print "[-] '%s' is not settable"%(var)
+        else:
+            print "[+] Setting %s to %s"%(var, val)
+
+
+    def do_get(self, line):
+        """
+        Countepart to do_set that can retrieve the mangled user set variable name
+        If requested variable is not present None is returned
+        """
+        split_line = line.split(" ")
+        ret = self.get_var(split_line[0])
+        if not ret:
+            print "[-] Unknown variable '%s'"%(split_line[0])
+        else:
+            for var, val in ret.items():
+                print "%s = %s"%(var, val)
+
+
+    def do_r(self, line):
+        """
+        Alias for results
+        """
+        self.do_results(line)
+
+
+    def do_results(self, line):
+        """
+        View returned data from asynchronous commands
+        """
+        split_line = line.split(" ")
+        cmd_id = split_line[0]
+
+        if cmd_id == '':
+            ##Show a list of all commands with pending data
+            if len(self.async_cmd_status) == 0:
+                self.notify("No results pending")
+                return None
+
+            for cmd_id, info in self.async_cmd_status.items():
+
+                self.output("\t[ID]\t[Name]\t\t[Status]")
+                self.output("\t============================================================================")
+                if not info[0]:
+                    status = "Command running... (since %s)"%(time.ctime(info[2]))
+                else:
+                    status = "Completed. (completed %s)"%(time.ctime(info[2]))
+                self.output("\t[%d]\t%s\t%s"%(cmd_id, info[1], status))
+                self.output("\n\tType `results <cmd_id>` to view output")
+                return None
+
+        info = self.async_cmd_status.get(int(cmd_id), False)
+        if not info:
+            self.error("Unknown command ID given - %s"%(cmd_id))
+
+        elif not info[0]:
+            self.notify("\tCommand not completed yet.")
+        else:
+            self.output("Results from [%s] %s:\n"%(cmd_id, info[1]))
+            self.output("%s"%(info[3]))
+
     ##Tab-completion logic
     def completedefault(self, text, line, begidx, endidx):
         """
@@ -384,7 +529,7 @@ class pyMyoCli(pyMyo, cmd.Cmd):
     
     def default(self, line):
         """
-        Run a pyMyo module
+        Run a pyMyo module either synchronously or asynchronously
         
         This is the catchall that is used when the input command doesn't match any of the hardcoded
          commands above. We then try and import a module of the specified name from the 'modules'
@@ -393,21 +538,31 @@ class pyMyoCli(pyMyo, cmd.Cmd):
         ##Call a module or do a calculation ? - check if first char is a digit if so do a calc
         if line[0].isdigit():
             self.do_eval(line)
-            
             return None
             
-        split_line = line.split(" ")
-
+        spl = line.split(" ")
         try:
             ##Attempt to find a given module via it's name or alias
-            module_obj = self.get_module(split_line[0])
+            module_name = spl[0]
+            module_obj = self.get_module(module_name)
             
             if module_obj:
-                
-                ##Then run module.<supplied command name>(args)
-                data = getattr(module_obj, "Command")(self, split_line[0], *split_line[1:])
-                self.output( "" )
-                
+                ##First test to see if the module is a multiprocessing module, if so launch the module in
+                ## a new thread
+                if getattr(module_obj, "__async__", False):
+                    t = Thread(target=module_obj.Command, args=(self,  module_name, self.cmd_id, spl[1:]))
+                    self.async_cmd_threads[self.cmd_id] = t
+                    self.async_cmd_status[self.cmd_id] = [False, module_name, time.time(), ""]
+                    t.start()
+                    data = None
+                    self.output("%s launched as a asynchronous command - ID: %s"%(spl[0], self.cmd_id))
+
+                else:
+                    ##If it's not treat it as a serial module & just run module.<supplied command name>(args)
+                    data = getattr(module_obj, "Command")(self, module_name, *spl[1:])
+                    self.output("")
+
+                self.cmd_id += 1
                 return data
             
         except Exception, err:
@@ -421,29 +576,39 @@ class pyMyoCli(pyMyo, cmd.Cmd):
         """
         Catch ctrl-d
         """
-        print "\nCtrl-D caught. Exiting"
+        self.output("\nCtrl-D caught. Exiting")
         return self.do_exit
     
-    def do_exit(self, arg):
+    def exit(self, arg):
         """
         Quit the shell
         """
         ##call pyMyo cleanup routines
         self.cleanup()
-        
+
         return True
+
+    def do_exit(self, arg):
+        """
+        Quit the shell
+        """
+        ##Child threads still running?
+        if len(self.async_cmd_threads) > 0:
+            self.output("\nAsynchronous commands still running, waiting for them to complete....")
+
+        return self.exit()
     
     def do_quit(self, arg):
         """
         Quit the shell
         """
-        return self.do_exit
+        return self.do_exit()
     
     def do_q(self, arg):
         """
         Quit the shell
         """
-        return self.do_exit  
+        return self.do_exit()
     
      
     def output(self, msg):

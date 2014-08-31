@@ -27,13 +27,13 @@ The current functionality & shortcuts can be summarised as:
     'list'               - list the available modules
     'info <module name>' - Show module metadata
     <module name> arg1 arg2 ... - run module on list of arguments
-    <enter>              - run previous command
     <module name> enter  - without args runs the stated module with the last argument specified
     <tab>                - autocomplete
     <up>, <down>         - browse shell history, separate histories are kept for pyMyo shell, system shells & python shells. All histories are saved and restored each session for persistent history 
                        
     <math expression>    - any command that starts with a digit will be evaluated as a math expression using standard Python mathematical operators and rules
-    
+    'results' or 'r'     - show a table of the status of asynchronous command modules
+    'results/r <id>'     - show the results of the specific asynchronous command
     'reload'             - Cause pyMyo to reload all the command modules without restarting pyMyo, useful for debugging / developing new command modules
     'debug'              - Toggle debugging output, useful when things are breaking
     
@@ -74,8 +74,14 @@ Custom command modules reside in directories under `/modules` and have a very si
 	* `__updated__` - When the module was last update (string)
 	* `__help__`    - A brief description of what the module does (string)
 	* `__alias__`   - Alternative short names by which this command can be called from the pyMyo shell (list of strings)
-	
-A barebones command module looks like:
+
+Commands can be synchronous (default) or asynchronous, if you want a module to run in the background and return status upon completion then set the following extra variable:
+
+    * `__async__ = True`   - Run the module in an asynchronous mode
+
+
+###Synchronous Command
+A barebones synchronous command module looks like:
 
 **command.py**
 
@@ -101,7 +107,54 @@ The `pymyo` argument passed to every command module gives access to the pymyo na
 * `pymyo.notify()`      - Display a notification message in the interaction layer
 * `pymyo.error()`       - Display a error message in the interaction layer
 
-	
+There is no concept of a returned value, just the above methods to display various types of messages. Returning anything will force the pyMyo interpreter to quit.
+
+###Asynchronous Command
+A barebones synchronous command module looks like:
+
+**command.py**
+
+```
+__author__  = "you@an_email.com"
+__version__ = 1.0
+__updated__ = "26/05/2014"
+__help__    = "Test async module for showing structure"
+__alias__   = ["ta", "t3st_a5ync"]
+__async__   = True
+
+import time
+
+def Command(pymyo, name, cmd_id, *args):
+
+    time.sleep(10.0)
+    ret_msg = "%s returned %d\nThe reference back to the pymyo instance is: %s"%(name, cmd_id, pymyo)
+    if args:
+        ret_msg += "\nThe arguments passed were %s"%(args)
+
+    pymyo.async_exit(cmd_id, ret_msg)
+```
+
+Differences to note are the `cmd_id` parameter that is passed to identify the background thread running the command.
+
+The second difference is how the command provides status and output, asynchronous commands must use `pymyo.async_exit(cmd_id, <return_msg_here>)` to pass back data to the main interpreter loop.
+
+After every command has been run in the pyMyo shell, and before the prompt is printed, the interpreter loop looks for the status of commands running in the background. If any have returned status since the last command a notice will be shown.
+
+To see the results of asynchronous commands use the `results` or `r` command. Without any arguments a table all all results will be returned, to see specific results pass the command ID to the `results` command:
+
+```
+pyMyo # r
+	[ID]	[Name]		[Status]
+	============================================================================
+	[1]	test_async	Command running... (since Mon Aug 25 19:29:56 2014)
+
+	Type `results <cmd_id>` to view output
+pyMyo # r 0
+[-] Unknown command ID given - 0
+[!] DEBUG DATA:
+None
+```
+
 ##Supported Systems
 pyMyo has been tested most on OS X but I expect should work fine on Linux or BSD like systems. No idea about Windows, good luck (in so many ways) if you wish to use pyMyo on a Windows box. 
 	
