@@ -14,6 +14,8 @@ The underlying functionality & interaction layers are separate, however currentl
 
 ##Usage
 
+To start pyMyo just run `python pyMyo.py`, this will drop you to the pyMyo command line.
+
 The current functionality & shortcuts can be summarised as:
 
     'console' or '>'     - drop to a interactive python shell (ctrl-d to exit back to pyMyo)
@@ -56,6 +58,7 @@ Some initial example modules are bundled with the open source release of pyMyo, 
 * `rip`             - Return the reverse DNS of supplied IP address
 * `screenshot`      - Perform a screengrab (OS X only)
 * `test`            - Barebones example command module
+* `test`            - Barebones example of an asynchronous command module
 * `viewstatedecode` - Attempt to decode the viewstate string passed in as an argument 
 * `whois`      - Return WHOIS data on the supplied IP / hostname
     
