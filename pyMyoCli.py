@@ -596,19 +596,19 @@ class pyMyoCli(pyMyo, cmd.Cmd):
         if len(self.async_cmd_threads) > 0:
             self.output("\nAsynchronous commands still running, waiting for them to complete....")
 
-        return self.exit()
+        return self.exit(arg)
     
     def do_quit(self, arg):
         """
         Quit the shell
         """
-        return self.do_exit()
+        return self.do_exit(arg)
     
     def do_q(self, arg):
         """
         Quit the shell
         """
-        return self.do_exit()
+        return self.do_exit(arg)
     
      
     def output(self, msg):
