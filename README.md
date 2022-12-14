@@ -113,6 +113,7 @@ The `pymyo` argument passed to every command module gives access to the pymyo na
 There is no concept of a returned value, just the above methods to display various types of messages. Returning anything will force the pyMyo interpreter to quit.
 
 ###Asynchronous Command
+
 A barebones synchronous command module looks like:
 
 **command.py**
