@@ -160,6 +160,7 @@ None
 ```
 
 ##Supported Systems
+
 pyMyo has been tested most on OS X but I expect should work fine on Linux or BSD like systems. No idea about Windows, good luck (in so many ways) if you wish to use pyMyo on a Windows box. 
 	
 ##License
